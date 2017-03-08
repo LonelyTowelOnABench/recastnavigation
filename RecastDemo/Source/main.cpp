@@ -16,7 +16,16 @@
 // 3. This notice may not be removed or altered from any source distribution.
 //
 
+#define UNICODE
+#include <io.h>
+#include <string.h>
+#include <windows.h>
+#include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+
 #define _USE_MATH_DEFINES
 #include <math.h>
 #include "SDL.h"
@@ -60,7 +69,31 @@ static SampleItem g_samples[] =
 };
 static const int g_nsamples = sizeof(g_samples)/sizeof(SampleItem); 
 
+char saveFileName[MAX_PATH] = "";
 
+char *GetSaveFilePath()
+{
+	wchar_t filePath[MAX_PATH] = L"";
+	OPENFILENAME ofn;
+	ZeroMemory(&ofn, sizeof(ofn));
+
+	ofn.lStructSize = sizeof(OPENFILENAME);
+	ofn.hwndOwner = NULL;
+	ofn.lpstrFilter = L"navmesh File (*.navmesh)\0*.navmesh\0";
+	ofn.lpstrFile = filePath;
+	ofn.nMaxFile = MAX_PATH;
+	ofn.lpstrDefExt = L"navmesh";
+	ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT;
+	ofn.lpstrTitle = L"Save NavMesh";
+
+	if (GetSaveFileName(&ofn))
+	{
+		wcstombs(saveFileName, filePath, wcslen(filePath));
+		return saveFileName;
+
+	}
+	return NULL;
+}
 int main(int /*argc*/, char** /*argv*/)
 {
 	// Init SDL
@@ -602,6 +635,7 @@ int main(int /*argc*/, char** /*argv*/)
 					delete test;
 					test = 0;
 				}
+
 
 				imguiSeparator();
 			}

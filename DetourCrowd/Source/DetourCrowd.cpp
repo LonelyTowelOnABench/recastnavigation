@@ -531,6 +531,10 @@ int dtCrowd::addAgent(const float* pos, const dtCrowdAgentParams* params)
 	float nearest[3];
 	dtPolyRef ref = 0;
 	dtVcopy(nearest, pos);
+	auto x1 = pos[0];
+	auto x2 = pos[1];
+	auto x3 = pos[2];
+
 	dtStatus status = m_navquery->findNearestPoly(pos, m_ext, &m_filters[ag->params.queryFilterType], &ref, nearest);
 	if (dtStatusFailed(status))
 	{

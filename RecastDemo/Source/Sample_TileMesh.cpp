@@ -36,11 +36,19 @@
 #include "OffMeshConnectionTool.h"
 #include "ConvexVolumeTool.h"
 #include "CrowdTool.h"
+#include <sstream>
+#include <fstream>
+#include <iomanip>
 
+#include <ppl.h>
+#include <iostream>
+#include <random>
 
 #ifdef WIN32
 #	define snprintf _snprintf
 #endif
+
+using namespace concurrency;
 
 
 inline unsigned int nextPow2(unsigned int v)
@@ -240,8 +248,318 @@ struct NavMeshTileHeader
 void Sample_TileMesh::saveAll(const char* path, const dtNavMesh* mesh)
 {
 	if (!mesh) return;
+
+	int magic = 1;
+	int version = 1;
+
+	NavMeshSetHeader header;
+	header.magic = NAVMESHSET_MAGIC;
+	header.version = NAVMESHSET_VERSION;
+	header.numTiles = 0;
+	for (int i = 0; i < mesh->getMaxTiles(); ++i)
+	{
+		const dtMeshTile* tile = mesh->getTile(i);
+		if (!tile || !tile->header || !tile->dataSize) continue;
+		header.numTiles++;
+	}
+	memcpy(&header.params, mesh->getParams(), sizeof(dtNavMeshParams));
+
+	std::ofstream outFile;
+	outFile.open(path);
+
+	auto test1 = header.params.orig[0];
+	auto test2 = header.params.orig[1];
+	auto test3 = header.params.orig[2];
+
+	std::stringstream ss;
+	ss.precision(12);
+	ss << "{" << "\n" <<
+		"  \"Param\": {\n" <<
+		"    \"Orig\": [\n" <<
+		"      " << header.params.orig[0] << ",\n" <<
+		"      " << header.params.orig[1] << ",\n" <<
+		"      " << header.params.orig[2] << "\n" <<
+		"    ],\n" <<
+		"    \"TileWidth\": " << header.params.tileWidth << ",\n" <<
+		"    \"TileHeight\": " << header.params.tileHeight << ",\n" <<
+		"    \"MaxTiles\": " << header.params.maxTiles << ",\n" <<
+		"    \"MaxPolys\": " << header.params.maxPolys << "\n" <<
+		"  },\n" <<
+		"  \"NavMeshBuilders\": [\n";
+
+	int continueCount = 0;
+	for (int t = 0; t < mesh->getMaxTiles(); ++t)
+	{
+		const dtMeshTile* tile = mesh->getTile(t);
+		if (!tile || !tile->header || !tile->dataSize)
+		{
+			++continueCount;
+			continue;
+		}
+
+		NavMeshTileHeader tileHeader;
+		tileHeader.tileRef = mesh->getTileRef(tile);
+		tileHeader.dataSize = tile->dataSize;
+
+		ss <<
+			"    {\n" << // START OF HEADER
+			"      \"Header\": {\n" <<
+			"        \"Magic\": " << magic << ",\n" <<
+			"        \"Version\": " << version << ",\n" <<
+			"        \"X\": " << tile->header->x << ",\n" <<
+			"        \"Y\": " << tile->header->y << ",\n" <<
+			"        \"Layer\": " << tile->header->layer << ",\n" <<
+			"        \"UserId\": " << tile->header->userId << ",\n" <<
+			"        \"PolyCount\": " << tile->header->polyCount << ",\n" <<
+			"        \"VertCount\": " << tile->header->vertCount << ",\n" <<
+			"        \"MaxLinkCount\": " << tile->header->maxLinkCount << ",\n" <<
+			"        \"DetailMeshCount\": " << tile->header->detailMeshCount << ",\n" <<
+			"        \"DetailVertCount\": " << tile->header->detailVertCount << ",\n" <<
+			"        \"DetailTriCount\": " << tile->header->detailTriCount << ",\n" <<
+			"        \"BVNodeCount\": " << tile->header->bvNodeCount << ",\n" <<
+			"        \"OffMeshConCount\": " << tile->header->offMeshConCount << ",\n" <<
+			"        \"OffMeshBase\": " << tile->header->offMeshBase << ",\n" <<
+			"        \"WalkableHeight\": " << tile->header->walkableHeight << ",\n" <<
+			"        \"WalkableRadius\": " << tile->header->walkableRadius << ",\n" <<
+			"        \"WalkableClimb\": " << tile->header->walkableClimb << ",\n" <<
+			"        \"BMin\": [\n" <<
+			"          " << tile->header->bmin[0] << ",\n" << //negate x
+			"          " << tile->header->bmin[1] << ",\n" <<
+			"          " << tile->header->bmin[2] << "\n" <<
+			"        ],\n" <<
+			"        \"BMax\": [\n" <<
+			"          " << tile->header->bmax[0] << ",\n" << //negate x
+			"          " << tile->header->bmax[1] << ",\n" <<
+			"          " << tile->header->bmax[2] << "\n" <<
+			"        ],\n" <<
+			"        \"TileRef\": " << tileHeader.tileRef << ",\n" <<
+			"        \"BVQuantFactor\": " << tile->header->bvQuantFactor << "\n" <<
+			"      },\n" << // START OF NavVerts
+			"      \"NavVerts\": [\n";
+
+		for (int i = 0; i < tile->header->vertCount*3; i += 3)
+		{
+			if(i == (tile->header->vertCount*3)-3) // last Vert
+			{
+				ss << "        " << tile->verts[i] << ",\n"; //negate x
+				ss << "        " << tile->verts[i + 1] << ",\n";
+				ss << "        " << tile->verts[i + 2] << "\n";
+			}
+			else
+			{
+					ss << "        " << tile->verts[i] << ",\n"; //negate x
+					ss << "        " << tile->verts[i+1] << ",\n";
+					ss << "        " << tile->verts[i+2] << ",\n";
+			}
+		}
+
+		ss << "      ],\n" << // START OF NavPolys
+			"      \"NavPolys\": [\n";
+
+		for (int i = 0; i < tile->header->polyCount; ++i)
+		{
+			ss << "        {\n" <<
+				"          \"_areaAndType\": " << int(tile->polys[i].areaAndtype) << ",\n" <<
+				"          \"FirstLink\": " << tile->polys[i].firstLink << ",\n" <<
+				"          \"Verts\": [\n";
+
+			for (int v = 0; v < DT_VERTS_PER_POLYGON; ++v)
+			{
+				if (v == DT_VERTS_PER_POLYGON - 1) // last Vert
+					ss << "            " << tile->polys[i].verts[v] << "\n";
+				else
+					ss << "            " << tile->polys[i].verts[v] << ",\n";
+			}
+
+			ss << "          ],\n" <<
+				"          \"Neis\": [\n";
+
+			for (int v = 0; v < DT_VERTS_PER_POLYGON; ++v)
+			{
+				if (v == DT_VERTS_PER_POLYGON - 1) // last Vert
+					ss << "            " << tile->polys[i].neis[v] << "\n";
+				else
+					ss << "            " << tile->polys[i].neis[v] << ",\n";
+			}
+
+			ss << "          ],\n" <<
+				"          \"Flags\": " << tile->polys[i].flags << ",\n" <<
+				"          \"VertCount\": " << int(tile->polys[i].vertCount) << ",\n" <<
+				"          \"Area\": " << int(tile->polys[i].getArea()) << ",\n" <<
+				"          \"Type\": " << int(tile->polys[i].getType()) << "\n";
+
+			if(tile->polys[i].getType() != 0)
+			{
+				int bob = 1;
+				auto original = tile->polys[i].getType();
+				auto test = int(tile->polys[i].getType());
+				bob = 2;
+			}
+
+			if (i == tile->header->polyCount - 1) // last Poly
+				ss << "        }\n";
+			else
+				ss << "        },\n";
+		}
+
+		ss << "      ],\n" << //Start of NavLinks
+			"      \"NavLinks\": [\n";
+
+		for (int i = 0; i < tile->header->maxLinkCount; ++i)
+		{
+			ss << "        {\n" <<
+				"          \"Ref\": " << tile->links[i].ref << ",\n" <<
+				"          \"Next\": " << tile->links[i].next << ",\n" <<
+				"          \"Edge\": " << int(tile->links[i].edge) << ",\n" <<
+				"          \"Side\": " << int(tile->links[i].side) << ",\n" <<
+				"          \"BMin\": " << int(tile->links[i].bmin) << ",\n" <<
+				"          \"BMax\": " << int(tile->links[i].bmax) << ",\n";
+
+			if (i == tile->header->maxLinkCount - 1) // last link
+				ss << "        }\n";
+			else
+				ss << "        },\n";
+		}
+
+		ss << "      ],\n" << //Start of NavDMeshes
+			"      \"NavDMeshes\": [\n";
+
+		for (int i = 0; i < tile->header->detailMeshCount; ++i)
+		{
+			ss << "        {\n" <<
+				"          \"VertBase\": " << tile->detailMeshes[i].vertBase << ",\n" <<
+				"          \"TriBase\": " << tile->detailMeshes[i].triBase << ",\n" <<
+				"          \"VertCount\": " << int(tile->detailMeshes[i].vertCount) << ",\n" <<
+				"          \"TriCount\": " << int(tile->detailMeshes[i].triCount) << ",\n";
+
+			if (i == tile->header->detailMeshCount - 1) // last detail mesh
+				ss << "        }\n";
+			else
+				ss << "        },\n";
+		}
+
+		ss << "      ],\n" << //Start of NavDVerts
+			"      \"NavDVerts\": [\n";
+
+		for (int i = 0; i < tile->header->detailVertCount * 3; i += 3)
+		{
+			if (i == (tile->header->detailVertCount * 3) - 3) // last Vert
+			{
+				ss << "        " << tile->detailVerts[i] << ",\n"; //negate x
+				ss << "        " << tile->detailVerts[i + 1] << ",\n";
+				ss << "        " << tile->detailVerts[i + 2] << "\n";
+			}
+			else
+			{
+				ss << "        " << tile->detailVerts[i] << ",\n"; //negate x
+				ss << "        " << tile->detailVerts[i + 1] << ",\n";
+				ss << "        " << tile->detailVerts[i + 2] << ",\n";
+			}
+		}
+
+		ss << "      ],\n" << //Start of NavDTris
+			"      \"NavDTris\": [\n";
+
+		for (int i = 0; i < tile->header->detailTriCount*4; ++i)
+		{
+			if (i == (tile->header->detailTriCount*4) - 1) // last detail Tri
+				ss << "        " << int(tile->detailTris[i]) << "\n";
+			else
+				ss << "        " << int(tile->detailTris[i]) << ",\n";
+		}
+
+		ss << "      ],\n" << //Start of NavBvTree
+			"      \"NavBvTree\": [\n";
+
+
+		for (int i = 0; i < tile->header->bvNodeCount; ++i)
+		{
+			ss << "        {\n" <<
+				"          \"BMin\": [\n" <<
+				"            " << tile->bvTree[i].bmin[0] << ",\n" <<
+				"            " << tile->bvTree[i].bmin[1] << ",\n" <<
+				"            " << tile->bvTree[i].bmin[2] << "\n" <<
+				"          ],\n" <<
+				"          \"BMax\": [\n" <<
+				"            " << tile->bvTree[i].bmax[0] << ",\n" <<
+				"            " << tile->bvTree[i].bmax[1] << ",\n" <<
+				"            " << tile->bvTree[i].bmax[2] << "\n" <<
+				"          ],\n" <<
+				"          \"I\": " << tile->bvTree[i].i << "\n";
+
+			if (i == tile->header->maxLinkCount - 1) // last link
+				ss << "        }\n";
+			else
+				ss << "        },\n";
+		}
+
+		if (tile->header->offMeshConCount == 0)
+		{
+			ss << "      ],\n" << //Start of OffMeshCons
+				"      \"OffMeshCons\": []\n";
+		}
+		else
+		{
+			ss << "      ],\n" << //Start of OffMeshCons
+				"      \"OffMeshCons\": [\n";
+			for (int i = 0; i < tile->header->offMeshConCount; ++i)
+			{
+				ss << "        {\n" <<
+					"          \"Pos\": [\n" <<
+					"            " << tile->offMeshCons[i].pos[0] << ",\n" << // This is always six
+					"            " << tile->offMeshCons[i].pos[1] << ",\n" <<
+					"            " << tile->offMeshCons[i].pos[2] << ",\n" <<
+					"            " << tile->offMeshCons[i].pos[3] << ",\n" <<
+					"            " << tile->offMeshCons[i].pos[4] << ",\n" <<
+					"            " << tile->offMeshCons[i].pos[5] << "\n" <<
+					"          ],\n" <<
+					"          \"Rad\": " << tile->offMeshCons[i].rad << ",\n" <<
+					"          \"Poly\": " << tile->offMeshCons[i].poly << ",\n" <<
+					"          \"Flags\": " << int(tile->offMeshCons[i].flags) << ",\n" <<
+					"          \"Side\": " << int(tile->offMeshCons[i].side) << ",\n" <<
+					"          \"UserId\": " << int(tile->offMeshCons[i].userId) << "\n";
+
+					if (i == tile->header->offMeshConCount - 1) // last link
+						ss << "        }\n";
+					else
+						ss << "        },\n";
+			}
+			ss << "      ]\n"; //end of OffMeshCons
+		}
+
+		
+
+		if (t == mesh->getMaxTiles() - 1) // last detail Tri
+			ss << "    }\n";
+		else
+			ss << "    },\n";
+
+	}
+
+	for (int i = 0; i < continueCount; ++i)
+	{
+		if(i == continueCount-1)
+			ss << "    null\n";
+		else
+			ss << "    null,\n";
+	}
+
+	ss << "  ]\n" <<
+		"}";
+
+
+
+
+
+
+
+
+
+	outFile << ss.rdbuf();
+
+	outFile.close();
 	
-	FILE* fp = fopen(path, "wb");
+	/*FILE* fp = fopen(path, "wb");
 	if (!fp)
 		return;
 	
@@ -273,7 +591,7 @@ void Sample_TileMesh::saveAll(const char* path, const dtNavMesh* mesh)
 		fwrite(tile->data, tile->dataSize, 1, fp);
 	}
 
-	fclose(fp);
+	fclose(fp);*/
 }
 
 dtNavMesh* Sample_TileMesh::loadAll(const char* path)
@@ -390,13 +708,13 @@ void Sample_TileMesh::handleSettings()
 	
 	if (imguiButton("Save"))
 	{
-		saveAll("all_tiles_navmesh.bin", m_navMesh);
+		saveAll("all_tiles_navmesh.json", m_navMesh);
 	}
 
 	if (imguiButton("Load"))
 	{
 		dtFreeNavMesh(m_navMesh);
-		m_navMesh = loadAll("all_tiles_navmesh.bin");
+		m_navMesh = loadAll("all_tiles_navmesh.json");
 		m_navQuery->init(m_navMesh, 2048);
 	}
 

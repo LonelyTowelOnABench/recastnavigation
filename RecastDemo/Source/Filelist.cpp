@@ -65,7 +65,7 @@ void scanDirectory(const char* path, const char* ext, FileList& list)
 #ifdef WIN32
 	_finddata_t dir;
 	char pathWithExt[260];
-	long fh;
+	intptr_t fh;
 	strcpy(pathWithExt, path);
 	strcat(pathWithExt, "/*");
 	strcat(pathWithExt, ext);

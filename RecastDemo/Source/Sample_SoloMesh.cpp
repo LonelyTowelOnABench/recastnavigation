@@ -88,12 +88,61 @@ void Sample_SoloMesh::handleSettings()
 		m_keepInterResults = !m_keepInterResults;
 
 	imguiSeparator();
+
+	if (imguiButton("Save"))
+	{
+		saveAll("navmesh.bin", m_navMesh);
+	}
+
+	imguiSeparator();
 	
 	char msg[64];
 	snprintf(msg, 64, "Build Time: %.1fms", m_totalBuildTimeMs);
 	imguiLabel(msg);
 	
 	imguiSeparator();
+}
+
+struct NavMeshSetHeader
+{
+	int magic;
+	int version;
+	int numTiles;
+	dtNavMeshParams params;
+};
+
+struct NavMeshTileHeader
+{
+	dtTileRef tileRef;
+	int dataSize;
+};
+
+inline int dtAlign4(int x) { return (x + 3) & ~3; }
+
+void Sample_SoloMesh::saveAll(const char* path, const dtNavMesh* mesh)
+{
+	if (!mesh) return;
+
+	FILE* fp = fopen(path, "wb");
+	if (!fp)
+		return;
+
+	const dtMeshTile* tile = mesh->getTile(0);
+	if (!tile || !tile->header || !tile->dataSize) return;
+
+	NavMeshTileHeader tileHeader;
+	tileHeader.tileRef = mesh->getTileRef(tile);
+	tileHeader.dataSize = tile->dataSize;
+	fwrite(&tileHeader.dataSize, sizeof(tileHeader.dataSize), 1, fp); // datasize first
+
+	fwrite(tile->data, tile->dataSize, 1, fp);
+
+	dtMeshHeader* header = (dtMeshHeader*)tile->data;
+	const int headerSize = dtAlign4(sizeof(dtMeshHeader));
+
+	int bob = 1;
+
+	fclose(fp);
 }
 
 void Sample_SoloMesh::handleTools()

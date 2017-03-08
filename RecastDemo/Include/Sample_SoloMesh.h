@@ -68,6 +68,7 @@ public:
 	virtual ~Sample_SoloMesh();
 	
 	virtual void handleSettings();
+	void saveAll(const char* path, const dtNavMesh* mesh);
 	virtual void handleTools();
 	virtual void handleDebugMode();
 	
