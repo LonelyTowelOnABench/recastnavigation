@@ -49,6 +49,10 @@
 #	define putenv _putenv
 #endif
 
+#ifdef main
+#undef main
+#endif
+
 struct SampleItem
 {
 	Sample* (*create)();
